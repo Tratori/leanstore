@@ -4,7 +4,7 @@
 #include <vector>
 #include "Units.hpp"
 
-#if false //NDEBUG
+#if true  // NDEBUG
 #define RB_DEBUG_COUNTER(x)
 #else
 #define RB_DEBUG_COUNTER(x) x
@@ -27,9 +27,14 @@ public:
    static constexpr int POP_MAX = 32;
    u64 contains = 0;
    const u64 max_size;
-   RingBuffer(u64 max_size) : values(max_size+1), // +1 as one always stays empty. 
-      vec_first(&values[0]), vec_last(&values[max_size]), 
-      _read_ptr(&values[0]), _write_ptr(&values[0]), max_size(max_size) {
+   RingBuffer(u64 max_size)
+       : values(max_size + 1),  // +1 as one always stays empty.
+         vec_first(&values[0]),
+         vec_last(&values[max_size]),
+         _read_ptr(&values[0]),
+         _write_ptr(&values[0]),
+         max_size(max_size)
+   {
    }
    RingBuffer(RingBuffer const&) = delete;
    TValue& push_back(const TValue& value) {
@@ -47,7 +52,7 @@ public:
       assert(inserted > erased);
       *_write_ptr = value; // write value here
       _write_ptr = next; // move forward
-      return *current; 
+      return *current;
    }
    TValue& front() {
       if (_read_ptr == _write_ptr) {
@@ -101,7 +106,7 @@ public:
          next = vec_first;
       }
       if (next == _read_ptr) {
-        return true; 
+         return true;
       }
       return false;
    }

@@ -1,7 +1,9 @@
 #pragma once
 #include "Swip.hpp"
 #include "Units.hpp"
+#include "leanstore/profiling/counters/BFCounter.hpp"
 #include "leanstore/sync-primitives/PlainGuard.hpp"
+#include "leanstore/utils/Hist.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <atomic>
@@ -20,6 +22,10 @@ const u64 PAGE_SIZE = 4 * 1024;
 // -------------------------------------------------------------------------------------
 struct BufferFrame {
    enum class STATE : u8 { FREE = 0, HOT = 1, COOL = 2, LOADED = 3, IOCOLD = 4, IOCOLDDONE = 5, IOPOPPED = 6, IOLOST = 7, IOLOST2 = 8, COUNT = 9 /*keep as max*/};
+   Hist<int, u64> writeHist{100, 0, PAGE_SIZE};
+   u64 updates = 0;
+   u64 inserts = 0;
+   u64 removes = 0;
    struct Header {
       struct ContentionTracker {
          u32 restarts_counter = 0;
@@ -96,6 +102,19 @@ struct BufferFrame {
    // Pre: bf is exclusively locked
    void reset()
    {
+      // write statistics to bufferframe counters
+      BFCounters::bfCounters.inserts += inserts;
+      BFCounters::bfCounters.removes += removes;
+      BFCounters::bfCounters.updates += updates;
+      addHist(writeHist);
+      addUpdatesHist(updates);
+      addInsertsHist(inserts);
+      addRemovesHist(removes);
+      inserts = 0;
+      removes = 0;
+      updates = 0;
+      writeHist.resetData();
+
       //header.debug = header.pid;
       // -------------------------------------------------------------------------------------
       assert(!header.isWB);

@@ -120,6 +120,8 @@ OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_
    {
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
       auto ret = iterator.insertKV(key, value);
+      iterator.leaf.bf->writeHist.increaseSlot(o_key_length + o_value_length);
+      iterator.leaf.bf->updates++;
       ensure(ret == OP_RESULT::OK);
       if (FLAGS_wal) {
          auto wal_entry = iterator.leaf.reserveWALEntry<WALInsert>(key.length() + value.length());
@@ -167,6 +169,8 @@ OP_RESULT BTreeLL::updateSameSize(u8* o_key,
          wal_update_generator.after(current_value.data(), wal_entry->payload + key.length());
          wal_entry.submit();
       } else {
+         iterator.leaf.bf->writeHist.increaseSlot(current_value.length());
+         iterator.leaf.bf->updates++;
          callback(current_value.data(), current_value.length());
          iterator.leaf.incrementGSN();
       }
@@ -197,6 +201,9 @@ OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
          std::memcpy(wal_entry->payload + o_key_length, value.data(), value.length());
          wal_entry.submit();
       } else {
+         // removing moves on average, half of page to the left;
+         iterator.leaf.bf->removes++;
+         iterator.leaf.bf->writeHist.increaseSlot(2046);  // eyeball that shit
          iterator.leaf.incrementGSN();
       }
       ret = iterator.removeCurrent();

@@ -46,7 +46,7 @@ s64 BufferManager::phase_2_3_condition(CoolingPartition& p) {
 void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_end)
 {
    // FIXME MERGE put in comment
-   //cr::Worker::tls_ptr = new cr::Worker(0, nullptr, 0, ssd_fd); 
+   // cr::Worker::tls_ptr = new cr::Worker(0, nullptr, 0, ssd_fd);
    //   delete cr::Worker::tls_ptr;
 }
 
@@ -84,22 +84,24 @@ void BufferManager::pageProviderCycle(int partition_id) {
       COUNTERS_BLOCK() { PPCounters::myCounters().phase_2_added += added; }
    }
    // -------------------------------------------------------------------------------------
-   COUNTERS_BLOCK() { 
+   COUNTERS_BLOCK()
+   {
       phase_2_end = std::chrono::high_resolution_clock::now();
       PPCounters::myCounters().phase_2_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_2_end - phase_2_begin).count());
       submit_begin = phase_2_end;
-      partition.state.phase_3_begin = submit_begin; 
+      partition.state.phase_3_begin = submit_begin;
       PPCounters::myCounters().phase_3_counter++;
    }
    /*
     * Phase 3:
     */
-   COUNTERS_BLOCK() { 
+   COUNTERS_BLOCK()
+   {
       //PPCounters::myCounters().submitted += submitted;
       //PPCounters::myCounters().submit_cnt++;
-      submit_end = std::chrono::high_resolution_clock::now(); 
+      submit_end = std::chrono::high_resolution_clock::now();
       PPCounters::myCounters().submit_ms += (std::chrono::duration_cast<std::chrono::microseconds>(submit_end - submit_begin).count());
-      partition.state.poll_begin = submit_end; 
+      partition.state.poll_begin = submit_end;
    }
    COUNTERS_BLOCK() { partition.state.poll_end = std::chrono::high_resolution_clock::now(); }
    [[maybe_unused]] Time async_wb_begin, async_wb_end;
@@ -143,6 +145,7 @@ void BufferManager::evict_bf(CoolingPartition& partition, FreedBfsBatch& freed_b
    p1 = true;
    parent_handler.swip->evict(bf.header.pid);
    parent_handler.parent_bf->page.GSN++;
+   parent_handler.parent_bf->writeHist.increaseSlot(sizeof(*parent_handler.swip));
    // -------------------------------------------------------------------------------------
    // Reclaim buffer frame
    bf.reset();
@@ -196,7 +199,7 @@ u64 BufferManager::pageProviderPhase1Vec(CoolingPartition& partition, const u64 
       for (int i = 0; i < MAX_VEC_SIZE; i++ ) {
          vecs[i] = &vec_structs[i];
          //std::cout << std::hex << "bf_pos: " << bf_pos << std::endl;
-         u64 bf_pos = partitionRandomBufferFramePos(partition_id, max_partitions);  
+         u64 bf_pos = partitionRandomBufferFramePos(partition_id, max_partitions);
          vecs[i]->bf = &bfs[bf_pos];
       }
       for (int i = 0; i < MAX_VEC_SIZE; i++ ) {
@@ -205,9 +208,8 @@ u64 BufferManager::pageProviderPhase1Vec(CoolingPartition& partition, const u64 
       // -------------------------------------------------------------------------------------
       // check conditions AND NOT EXCLUSIVE latched
       // TODO isExcLatched on version
-#define is_cooling_candidate(bf) !bf->header.keep_in_memory && !bf->header.isWB \
-      && !(bf->header.latch.isExclusivelyLatched()) \
-      && bf->header.state == BufferFrame::STATE::HOT 
+#define is_cooling_candidate(bf) \
+   !bf->header.keep_in_memory && !bf->header.isWB && !(bf->header.latch.isExclusivelyLatched()) && bf->header.state == BufferFrame::STATE::HOT
 #define skip_this_if(check) if (check) {vec_size--; vecs[i] = vecs[vec_size]; continue; }
       for (int i = 0; i < vec_size; /*_*/ ) {
          const auto& v = *vecs[i];
@@ -297,7 +299,7 @@ u64 BufferManager::pageProviderPhase1Vec(CoolingPartition& partition, const u64 
       // Suitable page founds, lets cool
       for (int i = 0; i < vec_size; /*_*/ ) {
          auto& vec = *vecs[i];
-         auto& bf = vec.bf; 
+         auto& bf = vec.bf;
          auto& parent_handler = vec.parent_handler;
          skip_this_if(!vec.versionCheck());
          ///*
@@ -542,8 +544,8 @@ int BufferManager::pageProviderPhase2(CoolingPartition& partition, const u64 pag
    //const int submitMultiple = mean::exec::ioChannel().submitMin();
    BufferFrame* bf_arr;
    pages_left_to_iterate_partition = std::min(pages_to_iterate_partition, partition.cooling_queue.size());
-   while (pages_left_to_iterate_partition > 0  
-         && !mean::exec::ioChannel().writeStackFull() && partition.outstanding < (s64)partition.io_queue.max_size) {
+   while (pages_left_to_iterate_partition > 0 && !mean::exec::ioChannel().writeStackFull() &&
+          partition.outstanding < (s64)partition.io_queue.max_size) {
       if (!partition.cooling_queue.try_pop(bf_arr)) {
          break;
       }
@@ -551,10 +553,10 @@ int BufferManager::pageProviderPhase2(CoolingPartition& partition, const u64 pag
       partition.cooling_bfs_counter--;
       ensure(partition.cooling_queue.size() == partition.cooling_bfs_counter);
       // TODO think about RAID
-      // || (submitMultiple > 0 && added % submitMultiple != 0)) 
+      // || (submitMultiple > 0 && added % submitMultiple != 0))
       // // try that submitted is always multiple of raid submit count, even if it means we have to submit more than necessary
       // && (submitMultiple <= 0 || added % submitMultiple != 0 || (left_in_q >= submitMultiple*10))
-      // if it looks like we aren't gonna have enough enqued to have enough submissions, do not submit anything at all 
+      // if it looks like we aren't gonna have enough enqued to have enough submissions, do not submit anything at all
       BufferFrame& bf = *bf_arr;
       // -------------------------------------------------------------------------------------
       jumpmuTry()
@@ -599,7 +601,7 @@ int BufferManager::pageProviderPhase2(CoolingPartition& partition, const u64 pag
                      mean::UserIoCallback cb;
                      cb.user_data.val.ptr = &bf;
                      cb.user_data2.val.u = bf.page.GSN;
-                     cb.user_data3.val.ptr = &partition; 
+                     cb.user_data3.val.ptr = &partition;
                      cb.callback = [](mean::IoBaseRequest* req) {
                         auto& written_bf = *req->user.user_data.as<BufferFrame*>();
                         auto written_lsn = req->user.user_data2.val.u;
@@ -671,12 +673,10 @@ int BufferManager::pageProviderPhase2(CoolingPartition& partition, const u64 pag
             partition.cooling_queue.push_back(&bf);
             ensure(partition.cooling_queue.size() == partition.cooling_bfs_counter);
             //bf.header.state = BufferFrame::STATE::IOLOST;
-         } else if (bf.header.state != BufferFrame::STATE::HOT 
-               && bf.header.state != BufferFrame::STATE::FREE 
-               && bf.header.state != BufferFrame::STATE::IOCOLD
-               && bf.header.state != BufferFrame::STATE::IOCOLDDONE
-               && bf.header.state != BufferFrame::STATE::LOADED ) {
-            std::cout << "state: " << (int)bf.header.state << " evicted: " << evictedCalledd << " fromthe: " << fromTheBeginning << std::endl; 
+         } else if (bf.header.state != BufferFrame::STATE::HOT && bf.header.state != BufferFrame::STATE::FREE &&
+                    bf.header.state != BufferFrame::STATE::IOCOLD && bf.header.state != BufferFrame::STATE::IOCOLDDONE &&
+                    bf.header.state != BufferFrame::STATE::LOADED) {
+            std::cout << "state: " << (int)bf.header.state << " evicted: " << evictedCalledd << " fromthe: " << fromTheBeginning << std::endl;
          }
       }
    }

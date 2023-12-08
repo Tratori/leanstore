@@ -16,6 +16,7 @@
 // -------------------------------------------------------------------------------------
 #include "leanstore/concurrency/Mean.hpp"
 #include "leanstore/io/IoInterface.hpp"
+#include "leanstore/profiling/counters/BFCounter.hpp"
 
 #include "PerfEvent.hpp"
 // -------------------------------------------------------------------------------------
@@ -64,7 +65,7 @@ void run_tpcc()
    // -------------------------------------------------------------------------------------
    warehouseCount = FLAGS_tpcc_warehouse_count;
    mean::task::scheduleTaskSync([&]() {
-     warehouse = LeanStoreAdapter<warehouse_t>(db, "warehouse", "w");
+      warehouse = LeanStoreAdapter<warehouse_t>(db, "warehouse", "w");
       district = LeanStoreAdapter<district_t>(db, "district", "d");
       customer = LeanStoreAdapter<customer_t>(db, "customer", "c");
       customerwdl = LeanStoreAdapter<customer_wdl_t>(db, "customerwdl", "k");
@@ -118,6 +119,9 @@ void run_tpcc()
    // -------------------------------------------------------------------------------------
    double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
    cout << "data loaded - consumed space in GiB = " << gib << endl;
+
+   BFCounters::bfCounters.writeHist.resetData();
+
    mean::task::scheduleTaskSync([&]() { cout << "Warehouse pages = " << warehouse.btree->countPages() << endl; });
    // -------------------------------------------------------------------------------------
    atomic<u64> keep_running = true;
@@ -182,7 +186,7 @@ void run_tpcc()
            ThreadCounters::myCounters().tx++;
            mean::task::yield();
            /*
-           while (true) { 
+           while (true) {
               mean::task::yield();
               u64 now = mean::readTSC();
               if ((now - lastTsc) / 2 > rateLimitngEveryNs) {
@@ -210,6 +214,10 @@ void run_tpcc()
    if (FLAGS_persist) {
       db.getBufferManager().writeAllBufferFrames();
    }
+   BFCounters::bfCounters.writeHist.print();
+   BFCounters::bfCounters.insertsHist.print();
+   BFCounters::bfCounters.removesHist.print();
+   BFCounters::bfCounters.updatesHist.print();
    mean::env::shutdown();
 }
 
@@ -226,7 +234,7 @@ int main(int argc, char** argv)
    ioOptions.ioUringPollMode = FLAGS_io_uring_poll_mode;
    ioOptions.ioUringShareWq = FLAGS_io_uring_share_wq;
    ioOptions.raid5 = FLAGS_raid5;
-   ioOptions.iodepth = (FLAGS_async_batch_size + FLAGS_worker_tasks); // hacky, how to take into account for remotes 
+   ioOptions.iodepth = (FLAGS_async_batch_size + FLAGS_worker_tasks);  // hacky, how to take into account for remotes
    // -------------------------------------------------------------------------------------
    if (FLAGS_nopp) {
       ioOptions.channelCount = FLAGS_worker_threads;
