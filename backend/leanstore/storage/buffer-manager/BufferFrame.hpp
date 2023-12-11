@@ -1,6 +1,7 @@
 #pragma once
 #include "Swip.hpp"
 #include "Units.hpp"
+#include "leanstore/profiling/counters/BFCounters.hpp"
 #include "leanstore/sync-primitives/PlainGuard.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -88,12 +89,53 @@ struct BufferFrame {
    struct Header header;
    // -------------------------------------------------------------------------------------
    struct Page page;  // The persisted part
+   struct Page copy_page;  // copy of loaded persisted part
    // -------------------------------------------------------------------------------------
    bool operator==(const BufferFrame& other) { return this == &other; }
    // -------------------------------------------------------------------------------------
    inline bool isDirty() const { return header.lastWrittenGSN != page.GSN; }
    // -------------------------------------------------------------------------------------
    // Pre: bf is exclusively locked
+   void updateBfStats()
+   {
+      if (header.newPage) {
+         // skip for new pages as they are not persisted on disk
+         return;
+      }
+      std::vector<std::pair<int, int>> writes;
+      const int MAX_NO_CHANGE_PER_WRITE = 8;
+      int bytesSinceLastChange = 0;
+      bool iteratingOverWrite = false;
+      int currWriteStartPos = 0;
+      for (u64 i = 0; i < PAGE_SIZE; i++) {
+         if (memcmp(((u8*)copy_page) + i, ((u8*)page) + i, 1) == 0) {
+            // equal
+            if (iteratingOverWrite) {
+               bytesSinceLastChange++;
+               if (bytesSinceLastChange > MAX_NO_CHANGE_PER_WRITE) {
+                  writes.emplace_back(currWriteStartPos, i - bytesSinceLastChange);
+                  iteratingOverWrite = false;
+               }
+            }
+         } else {
+            // unequal
+            addWriteHeatmap(i, 1);
+            bytesSinceLastChange = 0;
+            if (!iteratingOverWrite) {
+               iteratingOverWrite = true;
+               currWriteStartPos = i;
+            }
+         }
+      }
+      if (iteratingOverWrite) {
+         writes.emplace_back(currWriteStartPos, PAGE_SIZE - bytesSinceLastChange);
+      }
+      for (auto write : writes) {
+         addWriteSize(write.second - write.first);
+      }
+      addNumWrites(writes.size());
+      BFCounters::bfCounters.totalEvicts++;
+   }
    void reset()
    {
       //header.debug = header.pid;
@@ -103,6 +145,7 @@ struct BufferFrame {
       //header.lastWrittenGSN = 0;
       header.state = STATE::FREE;  // INIT:
       header.isWB = false;
+      header.newPage = false;
       //header.pid = 9999;
       //header.next_free_bf = nullptr;
       header.contention_tracker.reset();
@@ -111,6 +154,7 @@ struct BufferFrame {
       // std::memset(reinterpret_cast<u8*>(&page), 0, PAGE_SIZE);
    }
    // -------------------------------------------------------------------------------------
+
    BufferFrame() { header.latch->store(0ul); }
 };
 // -------------------------------------------------------------------------------------
@@ -118,7 +162,7 @@ static constexpr u64 EFFECTIVE_PAGE_SIZE = sizeof(BufferFrame::Page::dt);
 // -------------------------------------------------------------------------------------
 static_assert(sizeof(BufferFrame::Page) == PAGE_SIZE, "");
 // -------------------------------------------------------------------------------------
-static_assert((sizeof(BufferFrame) - sizeof(BufferFrame::Page)) == 512, "");
+static_assert((sizeof(BufferFrame) - sizeof(BufferFrame::Page) * 2) == 512, "");
 // -------------------------------------------------------------------------------------
 }  // namespace storage
 }  // namespace leanstore

@@ -55,7 +55,7 @@ BufferManager::BufferManager()
       cooling_partitions_count = FLAGS_pp_threads;
       io_partitions_count = (1 << FLAGS_partition_bits);
       partitions_mask = io_partitions_count - 1;
-      
+
       const u64 free_bfs_limit = std::max(std::ceil((FLAGS_free_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(cooling_partitions_count)), 0.0); //128.0);
       const u64 cooling_bfs_upper_bound = std::max(std::ceil((FLAGS_cool_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(cooling_partitions_count)), 0.0);// 128.0);
 
@@ -178,7 +178,7 @@ BufferFrame& BufferManager::randomBufferFrame()
 // -------------------------------------------------------------------------------------
 BufferFrame& BufferManager::partitionRandomBufferFrame(u64 partition, u64 max_partitions)
 {
-   // it's a bit more complex as pool_size might not be a multiple of partitions_count 
+   // it's a bit more complex as pool_size might not be a multiple of partitions_count
    u64 bfs_remaining = dram_pool_size % max_partitions;
    u64 bfs_this_partition = dram_pool_size/max_partitions + (partition < bfs_remaining ? 1 : 0); // +1 if this partition has a page more
    auto rand_buffer_i = partition + utils::RandomGenerator::getRandU64(0, bfs_this_partition) * cooling_partitions_count;
@@ -188,7 +188,7 @@ BufferFrame& BufferManager::partitionRandomBufferFrame(u64 partition, u64 max_pa
 // -------------------------------------------------------------------------------------
 u64 BufferManager::partitionRandomBufferFramePos(u64 partition, u64 max_partitions)
 {
-   // it's a bit more complex as pool_size might not be a multiple of partitions_count 
+   // it's a bit more complex as pool_size might not be a multiple of partitions_count
    u64 bfs_remaining = dram_pool_size % max_partitions;
    u64 bfs_this_partition = dram_pool_size/max_partitions + (partition < bfs_remaining ? 1 : 0); // +1 if this partition has a page more
    auto rand_buffer_i = partition + utils::RandomGenerator::getRandU64(0, bfs_this_partition) * cooling_partitions_count;
@@ -276,21 +276,21 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
          jumpmuTry()
          {
             // hacky, have to find parent bf from swip, pid and  pos. This should be okay as the parent should be locked, right?
-            static_assert(sizeof(BufferFrame) == 512+PAGE_SIZE);
+            static_assert(sizeof(BufferFrame) == 512 + PAGE_SIZE * 2);
             u64 bf_index = ((u64)swip_guard.latch - (u64)this->bfs) / sizeof(BufferFrame);
             BufferFrame& parent_bf = this->bfs[bf_index];
             ensure(&parent_bf.header.latch == swip_guard.latch);
             // now how to find the pos
             btree::BTreeNode* node = (btree::BTreeNode*)parent_bf.page.dt;
-            s32 pos = -1; 
+            s32 pos = -1;
             /*
             // TODO the position is actually only needed in contetntion split.
-            // This is an unteste way to find the position, however it might be better 
+            // This is an unteste way to find the position, however it might be better
             // to just change the interface and not return the position at all.
             // contetion split can find the postion with calling lowerbound
             if (node->upper == swip_value) {
                pos = node->count;
-            } else { 
+            } else {
                // ptr() + slot[slotId].offset + slot[slotId].key_len
                int i = 0;
                while (i < node->count) {
@@ -334,6 +334,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       // -------------------------------------------------------------------------------------
       auto start = mean::getTimePoint();
       readPageSync(pid, bf.page);
+      memcpy(bf.copy_page, bf.page, sizeof(bf.page));
       /*
       //induce latnecy spikes
       if (leanstore::utils::RandomGenerator::getRand(0, 2*1000*1000) < 1) {

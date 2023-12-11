@@ -1,6 +1,8 @@
 #include "Time.hpp"
 #include "adapter.hpp"
 #include "leanstore/Config.hpp"
+#include "leanstore/concurrency-recovery/Worker.hpp"
+#include "leanstore/profiling/counters/BFCounters.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/profiling/counters/ThreadCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -8,7 +10,6 @@
 #include "leanstore/utils/Parallelize.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/utils/ZipfGenerator.hpp"
-#include "leanstore/concurrency-recovery/Worker.hpp"
 #include "schema.hpp"
 #include "types.hpp"
 // -------------------------------------------------------------------------------------
@@ -118,6 +119,8 @@ void run_tpcc()
    // -------------------------------------------------------------------------------------
    double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
    cout << "data loaded - consumed space in GiB = " << gib << endl;
+   BFCounters::bfCounters.printStats();
+   BFCounters::bfCounters.reset();
    mean::task::scheduleTaskSync([&]() { cout << "Warehouse pages = " << warehouse.btree->countPages() << endl; });
    // -------------------------------------------------------------------------------------
    atomic<u64> keep_running = true;
@@ -182,7 +185,7 @@ void run_tpcc()
            ThreadCounters::myCounters().tx++;
            mean::task::yield();
            /*
-           while (true) { 
+           while (true) {
               mean::task::yield();
               u64 now = mean::readTSC();
               if ((now - lastTsc) / 2 > rateLimitngEveryNs) {
@@ -210,6 +213,8 @@ void run_tpcc()
    if (FLAGS_persist) {
       db.getBufferManager().writeAllBufferFrames();
    }
+   BFCounters::bfCounters.printStats();
+   BFCounters::bfCounters.reset();
    mean::env::shutdown();
 }
 
@@ -226,7 +231,7 @@ int main(int argc, char** argv)
    ioOptions.ioUringPollMode = FLAGS_io_uring_poll_mode;
    ioOptions.ioUringShareWq = FLAGS_io_uring_share_wq;
    ioOptions.raid5 = FLAGS_raid5;
-   ioOptions.iodepth = (FLAGS_async_batch_size + FLAGS_worker_tasks); // hacky, how to take into account for remotes 
+   ioOptions.iodepth = (FLAGS_async_batch_size + FLAGS_worker_tasks);  // hacky, how to take into account for remotes
    // -------------------------------------------------------------------------------------
    if (FLAGS_nopp) {
       ioOptions.channelCount = FLAGS_worker_threads;
